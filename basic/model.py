@@ -3,7 +3,8 @@ import random
 import itertools
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.ops.rnn_cell import BasicLSTMCell
+# from tensorflow.python.ops.rnn_cell import BasicLSTMCell  #tf 0.11
+from tensorflow.contrib.rnn import BasicLSTMCell  #tf 1.1
 
 from basic.read_data import DataSet
 from my.tensorflow import get_initializer
@@ -108,7 +109,8 @@ class Model(object):
                     else:
                         word_emb_mat = tf.get_variable("word_emb_mat", shape=[VW, dw], dtype='float')
                     if config.use_glove_for_unk:
-                        word_emb_mat = tf.concat(0, [word_emb_mat, self.new_emb_mat])
+                        # word_emb_mat = tf.concat(0, [word_emb_mat, self.new_emb_mat]) # tf r0.11
+                        word_emb_mat = tf.concat([word_emb_mat, self.new_emb_mat], 0) #tf r1.1
 
                 with tf.name_scope("word"):
                     Ax = tf.nn.embedding_lookup(word_emb_mat, self.x)  # [N, M, JX, d]
@@ -116,8 +118,10 @@ class Model(object):
                     self.tensor_dict['x'] = Ax
                     self.tensor_dict['q'] = Aq
                 if config.use_char_emb:
-                    xx = tf.concat(3, [xx, Ax])  # [N, M, JX, di]
-                    qq = tf.concat(2, [qq, Aq])  # [N, JQ, di]
+                    # xx = tf.concat(3, [xx, Ax])  # [N, M, JX, di]
+                    # qq = tf.concat(2, [qq, Aq])  # [N, JQ, di]
+                    xx = tf.concat([xx, Ax], 3)  # [N, M, JX, di]
+                    qq = tf.concat([qq, Aq], 2)  # [N, JQ, di]
                 else:
                     xx = Ax
                     qq = Aq
@@ -139,14 +143,17 @@ class Model(object):
 
         with tf.variable_scope("prepro"):
             (fw_u, bw_u), ((_, fw_u_f), (_, bw_u_f)) = bidirectional_dynamic_rnn(d_cell, d_cell, qq, q_len, dtype='float', scope='u1')  # [N, J, d], [N, d]
-            u = tf.concat(2, [fw_u, bw_u])
+            # u = tf.concat(2, [fw_u, bw_u])
+            u = tf.concat([fw_u, bw_u], 2)
             if config.share_lstm_weights:
                 tf.get_variable_scope().reuse_variables()
                 (fw_h, bw_h), _ = bidirectional_dynamic_rnn(cell, cell, xx, x_len, dtype='float', scope='u1')  # [N, M, JX, 2d]
-                h = tf.concat(3, [fw_h, bw_h])  # [N, M, JX, 2d]
+                # h = tf.concat(3, [fw_h, bw_h])  # [N, M, JX, 2d]
+                h = tf.concat([fw_h, bw_h], 3)  # [N, M, JX, 2d]
             else:
                 (fw_h, bw_h), _ = bidirectional_dynamic_rnn(cell, cell, xx, x_len, dtype='float', scope='h1')  # [N, M, JX, 2d]
-                h = tf.concat(3, [fw_h, bw_h])  # [N, M, JX, 2d]
+                # h = tf.concat(3, [fw_h, bw_h])  # [N, M, JX, 2d]
+                h = tf.concat([fw_h, bw_h], 3)  # [N, M, JX, 2d]
             self.tensor_dict['u'] = u
             self.tensor_dict['h'] = h
 
@@ -162,18 +169,20 @@ class Model(object):
                 first_cell = d_cell
 
             (fw_g0, bw_g0), _ = bidirectional_dynamic_rnn(first_cell, first_cell, p0, x_len, dtype='float', scope='g0')  # [N, M, JX, 2d]
-            g0 = tf.concat(3, [fw_g0, bw_g0])
+            # g0 = tf.concat(3, [fw_g0, bw_g0])
+            g0 = tf.concat([fw_g0, bw_g0], 3)
             (fw_g1, bw_g1), _ = bidirectional_dynamic_rnn(first_cell, first_cell, g0, x_len, dtype='float', scope='g1')  # [N, M, JX, 2d]
-            g1 = tf.concat(3, [fw_g1, bw_g1])
+            # g1 = tf.concat(3, [fw_g1, bw_g1])
+            g1 = tf.concat([fw_g1, bw_g1], 3)
 
             logits = get_logits([g1, p0], d, True, wd=config.wd, input_keep_prob=config.input_keep_prob,
                                 mask=self.x_mask, is_train=self.is_train, func=config.answer_func, scope='logits1')
             a1i = softsel(tf.reshape(g1, [N, M * JX, 2 * d]), tf.reshape(logits, [N, M * JX]))
             a1i = tf.tile(tf.expand_dims(tf.expand_dims(a1i, 1), 1), [1, M, JX, 1])
 
-            (fw_g2, bw_g2), _ = bidirectional_dynamic_rnn(d_cell, d_cell, tf.concat(3, [p0, g1, a1i, g1 * a1i]),
+            (fw_g2, bw_g2), _ = bidirectional_dynamic_rnn(d_cell, d_cell, tf.concat([p0, g1, a1i, g1 * a1i], 3),
                                                           x_len, dtype='float', scope='g2')  # [N, M, JX, 2d]
-            g2 = tf.concat(3, [fw_g2, bw_g2])
+            g2 = tf.concat([fw_g2, bw_g2], 3)
             logits2 = get_logits([g2, p0], d, True, wd=config.wd, input_keep_prob=config.input_keep_prob,
                                  mask=self.x_mask,
                                  is_train=self.is_train, func=config.answer_func, scope='logits2')
@@ -419,7 +428,7 @@ def attention_layer(config, is_train, h, u, h_mask=None, u_mask=None, scope=None
         if not config.c2q_att:
             u_a = tf.tile(tf.expand_dims(tf.expand_dims(tf.reduce_mean(u, 1), 1), 1), [1, M, JX, 1])
         if config.q2c_att:
-            p0 = tf.concat(3, [h, u_a, h * u_a, h * h_a])
+            p0 = tf.concat([h, u_a, h * u_a, h * h_a], 3)
         else:
-            p0 = tf.concat(3, [h, u_a, h * u_a])
+            p0 = tf.concat([h, u_a, h * u_a], 3)
         return p0

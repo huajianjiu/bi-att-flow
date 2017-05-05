@@ -1,7 +1,8 @@
 import tensorflow as tf
 from tensorflow.python.ops.rnn import dynamic_rnn as _dynamic_rnn, \
     bidirectional_dynamic_rnn as _bidirectional_dynamic_rnn
-from tensorflow.python.ops.rnn import bidirectional_rnn as _bidirectional_rnn
+# from tensorflow.python.ops.rnn import bidirectional_rnn as _bidirectional_rnn #tf r0.11
+from tensorflow.contrib.rnn.python.ops.core_rnn import static_bidirectional_rnn as _bidirectional_rnn #tf r1.1
 
 from my.tensorflow import flatten, reconstruct
 

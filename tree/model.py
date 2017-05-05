@@ -83,8 +83,8 @@ class Model(object):
             # Ax = linear([Ax], d, False, scope='Ax_reshape')
             # Aq = linear([Aq], d, False, scope='Aq_reshape')
 
-        xx = tf.concat(3, [xxc, Ax])  # [N, M, JX, 2d]
-        qq = tf.concat(2, [qqc, Aq])  # [N, JQ, 2d]
+        xx = tf.concat([xxc, Ax], 3)  # [N, M, JX, 2d]
+        qq = tf.concat([qqc, Aq], 2)  # [N, JQ, 2d]
         D = d + config.word_emb_size
 
         with tf.variable_scope("pos_emb"):
@@ -107,7 +107,7 @@ class Model(object):
             no_op_cell = NoOpCell(D)
             tree_rnn_cell = TreeRNNCell(no_op_cell, d, tf.reduce_max)
             initial_state = tf.reshape(h, [N*M*JX, D])  # [N*M*JX, D]
-            inputs = tf.concat(4, [Atx, tf.cast(self.tx_edge_mask, 'float')])  # [N, M, H, JX, d+JX]
+            inputs = tf.concat([Atx, tf.cast(self.tx_edge_mask, 'float')], 4)  # [N, M, H, JX, d+JX]
             inputs = tf.reshape(tf.transpose(inputs, [0, 1, 3, 2, 4]), [N*M*JX, H, d + JX])  # [N*M*JX, H, d+JX]
             length = tf.reshape(tf.reduce_sum(tf.cast(tx_mask, 'int32'), 2), [N*M*JX])
             # length = tf.reshape(tf.reduce_sum(tf.cast(tf.transpose(tx_mask, [0, 1, 3, 2]), 'float'), 3), [-1])
