@@ -41,6 +41,8 @@ class Model(object):
         self.q_mask = tf.placeholder('bool', [N, None], name='q_mask')
         self.y = tf.placeholder('bool', [N, None, None], name='y')
         self.y2 = tf.placeholder('bool', [N, None, None], name='y2')
+        self.y3 = tf.placeholder('bool', [N, None, None], name='y3')
+        self.y4 = tf.placeholder('bool', [N, None, None], name='y4')
         self.is_train = tf.placeholder('bool', [], name='is_train')
         self.new_emb_mat = tf.placeholder('float', [None, config.word_emb_size], name='new_emb_mat')
 
@@ -166,6 +168,8 @@ class Model(object):
             (fw_g1, bw_g1), _ = bidirectional_dynamic_rnn(first_cell, first_cell, g0, x_len, dtype='float', scope='g1')  # [N, M, JX, 2d]
             g1 = tf.concat(3, [fw_g1, bw_g1])
 
+            #4 outputs for 4 positions in the context to be the keywords
+
             logits = get_logits([g1, p0], d, True, wd=config.wd, input_keep_prob=config.input_keep_prob,
                                 mask=self.x_mask, is_train=self.is_train, func=config.answer_func, scope='logits1')
             a1i = softsel(tf.reshape(g1, [N, M * JX, 2 * d]), tf.reshape(logits, [N, M * JX]))
@@ -178,20 +182,52 @@ class Model(object):
                                  mask=self.x_mask,
                                  is_train=self.is_train, func=config.answer_func, scope='logits2')
 
+            a1i2 = softsel(tf.reshape(g2, [N, M * JX, 2 * d]), tf.reshape(logits2, [N, M * JX]))
+            a1i2 = tf.tile(tf.expand_dims(tf.expand_dims(a1i2, 1), 1), [1, M, JX, 1])
+
+            (fw_g3, bw_g3), _ = bidirectional_dynamic_rnn(d_cell, d_cell, tf.concat(3, [p0, g2, a1i2, g2 * a1i2]),
+                                                          x_len, dtype='float', scope='g3')  # [N, M, JX, 2d]
+            g3 = tf.concat(3, [fw_g3, bw_g3])
+            logits3 = get_logits([g3, p0], d, True, wd=config.wd, input_keep_prob=config.input_keep_prob,
+                                 mask=self.x_mask,
+                                 is_train=self.is_train, func=config.answer_func, scope='logits3')
+
+            a1i3 = softsel(tf.reshape(g3, [N, M * JX, 2 * d]), tf.reshape(logits3, [N, M * JX]))
+            a1i3 = tf.tile(tf.expand_dims(tf.expand_dims(a1i3, 1), 1), [1, M, JX, 1])
+
+            (fw_g4, bw_g4), _ = bidirectional_dynamic_rnn(d_cell, d_cell, tf.concat(3, [p0, g3, a1i3, g3 * a1i3]),
+                                                          x_len, dtype='float', scope='g4')  # [N, M, JX, 2d]
+            g4 = tf.concat(3, [fw_g4, bw_g4])
+            logits4 = get_logits([g4, p0], d, True, wd=config.wd, input_keep_prob=config.input_keep_prob,
+                                 mask=self.x_mask,
+                                 is_train=self.is_train, func=config.answer_func, scope='logits4')
+
             flat_logits = tf.reshape(logits, [-1, M * JX])
             flat_yp = tf.nn.softmax(flat_logits)  # [-1, M*JX]
             yp = tf.reshape(flat_yp, [-1, M, JX])
             flat_logits2 = tf.reshape(logits2, [-1, M * JX])
             flat_yp2 = tf.nn.softmax(flat_logits2)
             yp2 = tf.reshape(flat_yp2, [-1, M, JX])
+            flat_logits3 = tf.reshape(logits3, [-1, M * JX])
+            flat_yp3 = tf.nn.softmax(flat_logits3)
+            yp3 = tf.reshape(flat_yp3, [-1, M, JX])
+            flat_logits4 = tf.reshape(logits4, [-1, M * JX])
+            flat_yp4 = tf.nn.softmax(flat_logits4)
+            yp4 = tf.reshape(flat_yp4, [-1, M, JX])
 
             self.tensor_dict['g1'] = g1
             self.tensor_dict['g2'] = g2
+            self.tensor_dict['g3'] = g3
+            self.tensor_dict['g4'] = g4
 
             self.logits = flat_logits
             self.logits2 = flat_logits2
+            self.logits3 = flat_logits3
+            self.logits4 = flat_logits4
             self.yp = yp
             self.yp2 = yp2
+            self.yp3 = yp3
+            self.yp4 = yp4
 
     def _build_loss(self):
         config = self.config
@@ -206,6 +242,14 @@ class Model(object):
         ce_loss2 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
             self.logits2, tf.cast(tf.reshape(self.y2, [-1, M * JX]), 'float')))
         tf.add_to_collection("losses", ce_loss2)
+
+        #Do know what the loss_mask is
+        ce_loss3 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            self.logits3, tf.cast(tf.reshape(self.y3, [-1, M * JX]), 'float')))
+        tf.add_to_collection("losses", ce_loss3)
+        ce_loss4 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+            self.logits4, tf.cast(tf.reshape(self.y4, [-1, M * JX]), 'float')))
+        tf.add_to_collection("losses", ce_loss4)
 
         self.loss = tf.add_n(tf.get_collection('losses', scope=self.scope), name='loss')
         tf.scalar_summary(self.loss.op.name, self.loss)
